@@ -130,6 +130,8 @@ public:
 	int bindingSend;
 	int bindingActive;
 
+	bool _timebase_master;
+
 	JackSendReturn *getJackSendReturn(int t);
 private:
 	int                 lastnframes;

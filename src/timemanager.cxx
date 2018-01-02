@@ -38,7 +38,11 @@ TimeManager::TimeManager():
 {
 	samplerate = jack->getSamplerate();
 	// 120 BPM default
-	fpb = samplerate / 2;
+	if(jack->_timebase_master){
+		fpb = samplerate / 2;
+	}else{
+		
+	}
 
 	//Counter for current bar/beat
 	barCounter  = 0;
@@ -177,18 +181,22 @@ void TimeManager::setTransportState( TRANSPORT_STATE s )
 
 void TimeManager::process(Buffers* buffers)
 {
+	if(!jack->_timebase_master){
+		jack_transport_state_t tstate;
+		jack_position_t tpos;
+		tstate = jack_transport_query(jack->getJackClientPointer(), &tpos);
+		if(tstate == JackTransportStopped){
+			setTransportState(TRANSPORT_STOPPED);
+		}
+	}
 	// time signature?
 	//buffers->transportPosition->beats_per_bar = 4;
 	//buffers->transportPosition->beat_type     = 4;
-
 	if ( transportState == TRANSPORT_STOPPED ) {
 		return;
 	}
 
 	int nframes = buffers->nframes;
-
-
-
 
 	if ( beatFrameCountdown < nframes ) {
 		//length of beat is not multiple of nframes, so need to process last frames of last beat *before* setting next beat
@@ -220,13 +228,32 @@ void TimeManager::process(Buffers* buffers)
 			observers.at(i)->beat();
 		}
 
-		if ( beatCounter % 4 == 0 ) {
-			// inform observers of new bar SECOND
-			for(uint i = 0; i < observers.size(); i++) {
-				observers.at(i)->bar();
+		if(jack->_timebase_master){
+			if(buffers->transportPosition){
+				if ( beatCounter % (int)buffers->transportPosition->beats_per_bar == 0 ) {
+					// inform observers of new bar SECOND
+					for(uint i = 0; i < observers.size(); i++) {
+						observers.at(i)->bar();
+					}
+					barCounter++;
+					//beatCounter=0;
+				}
 			}
-			barCounter++;
-			//beatCounter=0;
+		}else{
+			jack_position_t tpos;
+			jack_transport_query( jack->getJackClientPointer(), &tpos);
+
+			if(tpos.valid & JackPositionBBT){
+				if ( beatCounter % (int)tpos.beats_per_bar == 0 ) {
+					// inform observers of new bar SECOND
+					for(uint i = 0; i < observers.size(); i++) {
+						observers.at(i)->bar();
+					}
+					barCounter++;
+					//beatCounter=0;
+				}
+				setBpm(tpos.beats_per_minute);
+			}
 		}
 
 		// process after
@@ -250,24 +277,47 @@ void TimeManager::process(Buffers* buffers)
 	}
 
 	totalFrameCounter += nframes;
+	if(jack->_timebase_master){
+		// write BPM / transport info to JACK
 
-	// write BPM / transport info to JACK
-	int bpm = ( samplerate * 60) / fpb;
-	if ( buffers->transportPosition ) {
-		buffers->transportPosition->valid = (jack_position_bits_t)(JackPositionBBT | JackTransportPosition);
+		int bpm = ( samplerate * 60) / fpb;
+		if ( buffers->transportPosition ) {
+				buffers->transportPosition->valid = (jack_position_bits_t)(JackPositionBBT | JackTransportPosition);
 
-		buffers->transportPosition->bar  = beatCounter / 4 + 1;// bars 1-based
-		buffers->transportPosition->beat = (beatCounter % 4) + 1; // beats 1-4
+				buffers->transportPosition->bar  = beatCounter / 4 + 1;// bars 1-based
+				buffers->transportPosition->beat = (beatCounter % 4) + 1; // beats 1-4
 
-		float part = float( fpb-beatFrameCountdown) / fpb;
-		buffers->transportPosition->tick = part > 1.0f? 0.9999*1920 : part*1920;
+				float part = float( fpb-beatFrameCountdown) / fpb;
+				buffers->transportPosition->tick = part > 1.0f? 0.9999*1920 : part*1920;
 
-		buffers->transportPosition->frame = totalFrameCounter;
+				buffers->transportPosition->frame = totalFrameCounter;
 
-		buffers->transportPosition->ticks_per_beat = 1920;
-		buffers->transportPosition->beats_per_bar = 4;
+				buffers->transportPosition->ticks_per_beat = 1920;
+				buffers->transportPosition->beats_per_bar = 4;
 
-		buffers->transportPosition->beats_per_minute = bpm;
+				buffers->transportPosition->beats_per_minute = bpm;
+		}
+	}/*else{
+		jack_position_t tpos;
+		jack_transport_state_t tstate;
+		tstate = jack_transport_query( jack->getJackClientPointer(), &tpos);
+		if(tpos.valid & JackPositionBBT){
+			buffers->transportPosition->valid = (jack_position_bits_t)(JackPositionBBT | JackTransportPosition);
+
+			buffers->transportPosition->bar  = tpos.beat;
+			buffers->transportPosition->beat = tpos.beat;
+
+			buffers->transportPosition->tick = tpos.tick;
+
+			buffers->transportPosition->frame = tpos.frame;
+
+			buffers->transportPosition->ticks_per_beat = tpos.ticks_per_beat;
+			buffers->transportPosition->beats_per_bar = tpos.beats_per_bar;
+			setBpm(tpos.beats_per_minute);
+
+			buffers->transportPosition->beats_per_minute = tpos.beats_per_minute;
+		}
 	}
+*/
 }
 

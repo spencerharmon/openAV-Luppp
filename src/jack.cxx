@@ -279,10 +279,13 @@ Jack::Jack( std::string name ) :
 	}
 
 	if ( jack_set_timebase_callback(client,
-	                                0, //0, 0 == must be master, 1 == conditional
+	                                1, //0, 0 == must be master, 1 == conditional
 	                                (JackTimebaseCallback)static_timebase,
 	                                static_cast<void*>(this)) ) {
-		LUPPP_ERROR("%s","Error setting timebase callback");
+		_timebase_master = false;
+	}
+	else{
+		_timebase_master = true;
 	}
 
 	//Controller* m = new AkaiAPC();
