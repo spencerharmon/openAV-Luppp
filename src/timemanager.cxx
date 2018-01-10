@@ -243,8 +243,8 @@ void TimeManager::process(Buffers* buffers)
 			jack_position_t tpos;
 			jack_transport_query( jack->getJackClientPointer(), &tpos);
 
-			if(tpos.valid & JackPositionBBT){
-				if ( beatCounter % (int)tpos.beats_per_bar == 0 ) {
+//			if(tpos.valid & JackPositionBBT){
+				if ( tpos.beat == 1 ) {
 					// inform observers of new bar SECOND
 					for(uint i = 0; i < observers.size(); i++) {
 						observers.at(i)->bar();
@@ -253,7 +253,7 @@ void TimeManager::process(Buffers* buffers)
 					//beatCounter=0;
 				}
 				setBpm(tpos.beats_per_minute);
-			}
+//			}
 		}
 
 		// process after
