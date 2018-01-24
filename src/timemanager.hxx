@@ -50,6 +50,8 @@ public:
 	/// is handled gracefully, first calling process up to the beat, then doing
 	/// a beat() event on all TimeObservers, and processing the remaining samples
 	void process(Buffers* buffers);
+	void clientProcess(Buffers* buffers);
+	void masterProcess(Buffers* buffers);
 
 	/// returns the number of samples till beat if a beat exists in this process
 	/// Otherwise returns nframes
@@ -81,6 +83,13 @@ private:
 
 	int tapTempoPos;
 	long long tapTempo[3];
+
+	int lastbeat;
+	jack_nframes_t lastbeatframeminimum;
+	int totalbeatcounter;
+	int skew;
+	unsigned int obsFpb [100];
+	unsigned int bpmLastCycle;
 
 	std::vector<TimeObserver*> observers;
 };

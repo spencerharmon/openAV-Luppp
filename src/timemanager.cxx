@@ -282,14 +282,23 @@ void TimeManager::clientProcess(Buffers* buffers)
 	tstate = jack_transport_query( client, &tpos);
 
 	int bpm = samplerate * 60 / fpb;
-	if( bpm != tpos.beats_per_minute ){
+	if( tpos.beats_per_minute != bpmLastCycle){
 		//setBpm shouldn't be used by jack timebase client because it resets counters. use setFpb directly.
 //		setFpb( samplerate / tpos.beats_per_minute * 60 ); This is wrong, right?
 		setFpb( samplerate * 60 / tpos.beats_per_minute );
+		bpmLastCycle = tpos.beats_per_minute;
+
+		//preapare beat length detection for bpm change
+		for( int i = 0; i <= totalbeatcounter % 100; i++){
+			obsFpb[i] = 0;
+		}
+		//buffer start of detection due to anomalous beat length after change
+		totalbeatcounter = -3;
 	}
 
 	if(tstate == JackTransportStopped){
 		setTransportState(TRANSPORT_STOPPED);
+		lastbeat = 0;
 	}else if(tstate == JackTransportRolling){
 		setTransportState(TRANSPORT_ROLLING);
 	}
@@ -304,19 +313,63 @@ void TimeManager::clientProcess(Buffers* buffers)
 	jack_nframes_t startframe = tpos.frame;
 	jack_nframes_t endframe = startframe + nframes - 1;
 
-	char buffer[50];
-//	sprintf (buffer, "startframe: %i", (int) startframe);
-//	EventGuiPrint e0( buffer );
-//	writeToGuiRingbuffer( &e0 );
+	//following block is intended to detect the observed beat length in samples and
+	//adjust the fpb to reflect the average observed beat length rather than the reported one.
+	//I'm not sure if the difference between the expected fpb and the observed one is
+	//due to a misunderstanding on my part or bad behavior from some timebase masters.
+	//this is effectively implemented as a finite state machine, with the logic playing out
+	//over many cycles.
+	//the margin of error for beat length detection is equal to nframes.
 
-//	sprintf (buffer, "endframe: %i", (int) endframe);
-//	EventGuiPrint e1( buffer );
-//	writeToGuiRingbuffer( &e1 );
+	int beat = tpos.beat;
+	if(beat - lastbeat != 0 && lastbeat > 0){
+		if( nextBeatFrame > endframe ){
+			//avg too long, beat already occured
+			endframe = nextBeatFrame;
+			startframe = endframe - nframes;
+			--skew;
+		}
+		//observed frames per beat
 
-//	sprintf (buffer, "nextBeatFrame: %u", (unsigned int) nextBeatFrame);
-//	EventGuiPrint e2( buffer );
-//	writeToGuiRingbuffer( &e2 );
+		if(totalbeatcounter > 0){
+			//iteration
+			int iter = (totalbeatcounter - 1) % 100;
+			obsFpb[ iter ] = startframe - lastbeatframeminimum;
 
+			//denominator
+			int denom;
+			if( totalbeatcounter >= 100){
+				denom = 100;
+			}else denom = iter;
+
+			int totalObsFpb = 0;
+			for( int i = 0; i <= denom; i++ ){
+				totalObsFpb += obsFpb[i];
+			}
+			setFpb( (totalObsFpb / denom) + skew );
+		}
+
+		//char buffer[50];
+		//sprintf (buffer, "fpb: %i", fpb);
+		//EventGuiPrint e0( buffer );
+		//writeToGuiRingbuffer( &e0 );
+
+		//sprintf (buffer, "observed beat length: %i", startframe - lastbeatframeminimum);
+		//EventGuiPrint e1( buffer );
+		//writeToGuiRingbuffer( &e1 );
+
+		lastbeatframeminimum = startframe;
+		++totalbeatcounter;
+	}
+	lastbeat = beat;
+	//it is an error for the nextbeatframe to be occur before the startframe.
+	if( nextBeatFrame < startframe ){
+		//not the "real" start frame, but this allows us to process the beat
+		//while adjusting the skew to aid beat length detection
+		startframe = nextBeatFrame;
+		endframe = startframe + nframes;
+		skew++;
+	}
 
 	if ( nextBeatFrame >= startframe && nextBeatFrame <= endframe ) {
 		//length of beat is not multiple of nframes, so need to process last frames of last beat *before* setting next beat
@@ -345,10 +398,8 @@ void TimeManager::clientProcess(Buffers* buffers)
 			observers.at(i)->beat();
 		}
 
-		//check if this cycle's new beat is also a new bar
-		//presumably master will have set the new beat to 1 if startframe is the nextbeatframe.
-		//otherwise, it will still be the last beat in the bar
-		if ( ( nextBeatFrame == startframe && tpos.beat ==1 ) || tpos.beat == tpos.beats_per_bar ) {
+		//inform of new bar
+		if ( lastbeat == tpos.beats_per_bar ) {
 			// inform observers of new bar SECOND
 			for(uint i = 0; i < observers.size(); i++) {
 				observers.at(i)->bar();
