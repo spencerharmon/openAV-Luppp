@@ -87,7 +87,7 @@ private:
 	int lastbeat;
 	jack_nframes_t lastbeatframeminimum;
 	int totalbeatcounter;
-	int skew;
+	int skew = 0;
 	unsigned int obsFpb [100];
 	unsigned int bpmLastCycle;
 

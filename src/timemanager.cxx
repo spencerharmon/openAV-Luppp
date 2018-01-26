@@ -289,11 +289,14 @@ void TimeManager::clientProcess(Buffers* buffers)
 		bpmLastCycle = tpos.beats_per_minute;
 
 		//preapare beat length detection for bpm change
-		for( int i = 0; i <= totalbeatcounter % 100; i++){
+		int iter = (totalbeatcounter - 1) % 100;
+		if(iter == 0)
+			iter = 100;
+		for( int i = 0; i <= iter; i++){
 			obsFpb[i] = 0;
 		}
 		//buffer start of detection due to anomalous beat length after change
-		totalbeatcounter = -3;
+		totalbeatcounter = -2;
 	}
 
 	if(tstate == JackTransportStopped){
@@ -308,7 +311,7 @@ void TimeManager::clientProcess(Buffers* buffers)
 
 	//adjust to zero-based for frame maths
 	int thisbeat = ((int)tpos.bar - 1) * (int)tpos.beats_per_bar + ((int)tpos.beat - 1);
-	unsigned int nextBeatFrame = (thisbeat +1) * fpb;
+	unsigned int nextBeatFrame = (thisbeat + 1) * fpb;
 
 	jack_nframes_t startframe = tpos.frame;
 	jack_nframes_t endframe = startframe + nframes - 1;
@@ -322,16 +325,15 @@ void TimeManager::clientProcess(Buffers* buffers)
 	//the margin of error for beat length detection is equal to nframes.
 
 	int beat = tpos.beat;
-	if(beat - lastbeat != 0 && lastbeat > 0){
-		if( nextBeatFrame > endframe ){
-			//avg too long, beat already occured
-			endframe = nextBeatFrame;
-			startframe = endframe - nframes;
-			--skew;
-		}
+	if(beat != lastbeat && lastbeat > 0){
 		//observed frames per beat
 
 		if(totalbeatcounter > 0){
+			char buffer[50];
+			sprintf (buffer, "beat counter: %i", totalbeatcounter);
+			EventGuiPrint e3( buffer );
+			writeToGuiRingbuffer( &e3 );
+
 			//iteration
 			int iter = (totalbeatcounter - 1) % 100;
 			obsFpb[ iter ] = startframe - lastbeatframeminimum;
@@ -342,32 +344,39 @@ void TimeManager::clientProcess(Buffers* buffers)
 				denom = 100;
 			}else denom = iter;
 
+			sprintf (buffer, "denominator: %i", denom);
+			EventGuiPrint e2( buffer );
+			writeToGuiRingbuffer( &e2 );
+
 			int totalObsFpb = 0;
 			for( int i = 0; i <= denom; i++ ){
 				totalObsFpb += obsFpb[i];
 			}
-			setFpb( (totalObsFpb / denom) + skew );
+			setFpb( (totalObsFpb / (denom + 1)) + skew );
+
+			sprintf (buffer, "observed beat length: %i", startframe - lastbeatframeminimum);
+			EventGuiPrint e1( buffer );
+			writeToGuiRingbuffer( &e1 );
+
 		}
-
-		//char buffer[50];
-		//sprintf (buffer, "fpb: %i", fpb);
-		//EventGuiPrint e0( buffer );
-		//writeToGuiRingbuffer( &e0 );
-
-		//sprintf (buffer, "observed beat length: %i", startframe - lastbeatframeminimum);
-		//EventGuiPrint e1( buffer );
-		//writeToGuiRingbuffer( &e1 );
-
-		lastbeatframeminimum = startframe;
+		//changing to median to reduce error to nframes/2
+		lastbeatframeminimum = startframe + (nframes / 2);
 		++totalbeatcounter;
+
+		if( nextBeatFrame > endframe ){
+			//avg too long, beat already occured
+			endframe = nextBeatFrame;
+			startframe = endframe - nframes + 1;
+			--skew;
+		}
 	}
-	lastbeat = beat;
+
 	//it is an error for the nextbeatframe to be occur before the startframe.
 	if( nextBeatFrame < startframe ){
 		//not the "real" start frame, but this allows us to process the beat
 		//while adjusting the skew to aid beat length detection
 		startframe = nextBeatFrame;
-		endframe = startframe + nframes;
+		endframe = startframe + nframes -1;
 		skew++;
 	}
 
@@ -404,7 +413,6 @@ void TimeManager::clientProcess(Buffers* buffers)
 			for(uint i = 0; i < observers.size(); i++) {
 				observers.at(i)->bar();
 			}
-			barCounter++;
 		}
 
 		// process after
@@ -419,6 +427,7 @@ void TimeManager::clientProcess(Buffers* buffers)
 	} else {
 		jack->processFrames( nframes );
 	}
+	lastbeat = beat;
 }
 void TimeManager::process(Buffers* buffers)
 {
