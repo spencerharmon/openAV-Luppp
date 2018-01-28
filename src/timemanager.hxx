@@ -60,6 +60,7 @@ public:
 	/// TRANSPORT_STATE is defined in transport.hxx
 	void setTransportState( TRANSPORT_STATE s );
 
+	int getBeatsPerBar();
 private:
 	int samplerate;
 
@@ -87,11 +88,14 @@ private:
 	int lastbeat;
 	jack_nframes_t lastbeatframeminimum;
 	int totalbeatcounter;
-	int skew = 0;
+	int detectskew = 0;
 	unsigned int obsFpb [100];
 	unsigned int bpmLastCycle;
+	int beats_per_bar;
+	unsigned int nextBeatFrame;
 
 	std::vector<TimeObserver*> observers;
+
 };
 
 #endif // LUPPP_TIME_H

@@ -70,8 +70,8 @@ LooperClip* Looper::getClip(int scene)
 	return clips[scene];
 }
 
-void Looper::beat()
-{
+//void Looper::beat()
+//{
 	//TODO needed?
 	//FIXME: Need to keep looperClips in sync when there exists no int N
 	// such that playSpeed*N==1
@@ -90,7 +90,7 @@ void Looper::beat()
 
 //    }
 
-}
+//}
 
 void Looper::setRequestedBuffer(int s, AudioBuffer* ab)
 {

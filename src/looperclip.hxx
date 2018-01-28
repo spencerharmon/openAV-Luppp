@@ -44,7 +44,7 @@ class AudioBuffer;
  *
  * This class inherits from SaveAble to save its state.
 **/
-class LooperClip : public Stately
+class LooperClip : public Stately, public TimeObserver
 {
 public:
 	LooperClip(int track, int scene);
@@ -60,6 +60,7 @@ public:
 
 	/// TimeObserver override
 	void bar();
+	void beat();
 
 	/// SaveAble overrides
 	void save();
@@ -141,6 +142,8 @@ private:
 	float _playhead;
 	float _recordhead;
 	AudioBuffer* _buffer;
+
+	int beatsPlayed;
 };
 
 #endif // LUPPP_LOOPER_CLIP_H

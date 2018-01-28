@@ -42,6 +42,7 @@ LooperClip::LooperClip(int t, int s) :
 	init();
 }
 
+
 void LooperClip::init()
 {
 	_loaded     = false;
@@ -267,16 +268,65 @@ long LooperClip::getActualAudioLength()
 	return _buffer->getAudioFrames();
 }
 
+void LooperClip::beat(){
+	if(!jack->_timebase_master){
+		if(_playing){
+			beatsPlayed++;
+			char buffer[50];
+
+			sprintf (buffer, "beatsplayed %i", beatsPlayed);
+			EventGuiPrint e( buffer );
+			writeToGuiRingbuffer( &e );
+
+			sprintf (buffer, "beats in clip %i", _buffer->getBeats());
+			EventGuiPrint e0( buffer );
+			writeToGuiRingbuffer( &e0 );
+
+			if (beatsPlayed == _buffer->getBeats()){
+				char buffer[50];
+				queuePlay();
+				beatsPlayed = 0;
+
+				sprintf (buffer, "trigger success");
+				EventGuiPrint e1( buffer );
+				writeToGuiRingbuffer( &e1 );
+			} else if(beatsPlayed >= _buffer->getBeats()){
+				beatsPlayed = 0;
+			}
+/*			int fpb = jack->getTimeManager()->getFpb();
+			int length = _buffer->getBeats() * fpb;
+
+			sprintf (buffer, "trigger %i" (length - fpb + (fpb/64)));
+			EventGuiPrint e( buffer );
+			writeToGuiRingbuffer( &e );
+
+			sprintf (buffer, "playhead %f" getPlayhead());
+			EventGuiPrint e0( buffer );
+			writeToGuiRingbuffer( &e0 );
+
+			if(getPlayhead() > length - fpb + (fpb/64)){
+				queuePlay();
+
+			}
+*/
+		}
+	}
+}
+
 void LooperClip::bar()
 {
 	bool change = false;
 	GridLogic::State s = GridLogic::STATE_EMPTY;
 
 	// first update the buffer, as time has passed
-	if ( _recording ) {
-		// FIXME: assumes 4 beats in a bar
-		_buffer->setBeats( _buffer->getBeats() + 4 );
-		_buffer->setAudioFrames( jack->getTimeManager()->getFpb() * _buffer->getBeats() );
+	if ( _recording ){
+		if(jack->_timebase_master){
+			// FIXME: assumes 4 beats in a bar
+			_buffer->setBeats( _buffer->getBeats() + 4 );
+			_buffer->setAudioFrames( jack->getTimeManager()->getFpb() * _buffer->getBeats() );
+		} else{
+			_buffer->setBeats( _buffer->getBeats() + jack->getTimeManager()->getBeatsPerBar() );
+		}
 	}
 
 	if ( _playhead >= _recordhead ) {

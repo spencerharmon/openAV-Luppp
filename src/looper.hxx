@@ -53,7 +53,7 @@ public:
 	/// Override beat(). Resyncs loperclips to beat in case playSpeed is funny fraction
 	/// that doesnt add up to 1 (e.g if playSpeed=3/4 then 3/4+3/4+3/4+3/4=3!=1 bringing
 	/// looperClip out of sync)
-	virtual void beat();
+//	virtual void beat();
 	/// Process nframes of audio
 	void process(unsigned int nframes, Buffers* buffers);
 
