@@ -86,9 +86,8 @@ private:
 	long long tapTempo[3];
 
 	int lastbeat;
-	jack_nframes_t lastbeatframeminimum;
+	jack_nframes_t estLastBeatStor;
 	int totalbeatcounter;
-	int detectskew = 0;
 	unsigned int obsFpb [100];
 	unsigned int bpmLastCycle;
 	int beats_per_bar;

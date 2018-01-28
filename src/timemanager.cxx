@@ -286,14 +286,18 @@ void TimeManager::clientProcess(Buffers* buffers)
 	tstate = jack_transport_query( client, &tpos);
 
 	beats_per_bar = tpos.beats_per_bar;
-
+	bool bpmchange = 0;
 	int thisbeat = ((int)tpos.bar - 1) * (int)tpos.beats_per_bar + ((int)tpos.beat - 1);
 
+	//detect and react to bpm change by master.
+	//should not be done with already loaded looperclips; may lead to unexpected behavior
+	//no time stretching or compensation will occur, so loaded audio will be out of sync with master.
 	if( tpos.beats_per_minute != bpmLastCycle){
 		//setBpm shouldn't be used by jack timebase client because it resets counters. use setFpb directly.
 //		setFpb( samplerate / tpos.beats_per_minute * 60 ); This is wrong, right?
 		setFpb( samplerate * 60 / tpos.beats_per_minute );
 		bpmLastCycle = tpos.beats_per_minute;
+
 		nextBeatFrame = (thisbeat + 1) * fpb;
 
 		//preapare beat length detection for bpm change
@@ -305,6 +309,7 @@ void TimeManager::clientProcess(Buffers* buffers)
 		}
 		//buffer start of detection due to anomalous beat length after change
 		totalbeatcounter = -2;
+		bpmchange = true;
 	}
 
 	if(tstate == JackTransportStopped){
@@ -330,60 +335,97 @@ void TimeManager::clientProcess(Buffers* buffers)
 	//over many cycles.
 	//the margin of error for beat length detection is equal to nframes.
 
-	int nextbeatskew;
+	int nextbeatskew = 0;
 	int beat = tpos.beat;
-	int lastbeatframe = lastbeatframeminimum;
+	bool thisisarealbeat = false;
+	bool requestbeat = false;
 	if(beat != lastbeat && lastbeat > 0){
-		//observed frames per beat
-
+		//record and average observed beat lengths
 		if(totalbeatcounter > 0){
 			//iteration
 			int iter = (totalbeatcounter - 1) % 100;
-			obsFpb[ iter ] = startframe - lastbeatframeminimum;
+			//store observed beat length
+			obsFpb[ iter ] = startframe - estLastBeatStor;
 
-			//denominator
+			//denominator; start over at 100 (101 lengths: do more or less?)
 			int denom;
 			if( totalbeatcounter >= 100){
 				denom = 100;
 			}else denom = iter;
 
+			//agerage stored lengths and set fpb
 			int totalObsFpb = 0;
 			for( int i = 0; i <= denom; i++ ){
 				totalObsFpb += obsFpb[i];
 			}
-			setFpb( (totalObsFpb / (denom + 1)) + detectskew );
+			setFpb( totalObsFpb / (denom + 1) );
 
 			//char buffer[50];
-			//sprintf (buffer, "observed beat length: %i", startframe - lastbeatframeminimum);
+			//sprintf (buffer, "observed beat length: %i", startframe - estLastBeatStor);
 			//EventGuiPrint e1( buffer );
 			//writeToGuiRingbuffer( &e1 );
 
 		}
 		//changing to median to reduce error to nframes/2
-		lastbeatframeminimum = startframe + (nframes / 2);
+		estLastBeatStor = startframe + (nframes / 2);
 		++totalbeatcounter;
 
 		if( nextBeatFrame > endframe){
 			//avg too long, beat already occured
 			endframe = nextBeatFrame;
 			startframe = endframe - nframes + 1;
+			requestbeat = true;
 			nextbeatskew -= nextBeatFrame - endframe;
-			--detectskew;
+		}
+		if( nextBeatFrame < startframe){
+			//not the "real" start frame, but this allows us to process the beat
+			//while adjusting the skew to aid beat length detection
+			startframe = nextBeatFrame;
+			endframe = startframe + nframes -1;
+
+			//don't do above.
+			//when the average of the beat lengths is too low, this can occur
+			//several cycles in a row until the fpb is greater than or equal
+			//to the ideal, erroneously requesting beats.
+//			if( startframe > lastbeatframe + fpb * 0.9 ){
+				//register beat.
+			requestbeat = true;
+			nextbeatskew +=  startframe - nextBeatFrame;
+//			}
+		}
+		if( startframe <= nextBeatFrame && endframe >= nextBeatFrame ) {
+			//normally detected beat
+			requestbeat = true;
 		}
 	}
 
-	//it is an error for the nextbeatframe to be occur before the startframe.
-	if( nextBeatFrame < startframe){
-		//not the "real" start frame, but this allows us to process the beat
-		//while adjusting the skew to aid beat length detection
-		startframe = nextBeatFrame;
-		endframe = startframe + nframes -1;
+	//ensure that beats aren't registered at times they shouldn't
+	if(requestbeat){
+		int lastbeatframe = nextBeatFrame - fpb*2;
 
-		nextbeatskew +=  startframe - nextBeatFrame;
-		detectskew++;
+		char buffer[50];
+		sprintf(buffer, "beat requested; lastbeatframe: %i", lastbeatframe);
+		EventGuiPrint e0( buffer );
+		writeToGuiRingbuffer( &e0 );
+
+		sprintf(buffer, "startframe: %i", startframe);
+		EventGuiPrint e1( buffer );
+		writeToGuiRingbuffer( &e1 );
+
+		sprintf(buffer, "threshold: %f", lastbeatframe + fpb * 0.9);
+		EventGuiPrint e2( buffer );
+		writeToGuiRingbuffer( &e2 );
+
+		if( bpmchange ){
+			//allow beat change on bpmchange
+			thisisarealbeat = true;
+		} else if( startframe > lastbeatframe + fpb * 0.9){
+			//most of a beat has passed
+			thisisarealbeat = true;
+		}
 	}
 
-	if ( nextBeatFrame >= startframe && nextBeatFrame <= endframe && tpos.frame > lastbeatframe + fpb*.9) {
+	if ( thisisarealbeat ) {
 		//length of beat is not multiple of nframes, so need to process last frames of last beat *before* setting next beat
 		//then set new beat (get the queued actions: play, rec etc)
 		// then process first frames *after* new beat
@@ -424,6 +466,7 @@ void TimeManager::clientProcess(Buffers* buffers)
 		if(after)
 			jack->processFrames( after );
 
+		//nextbeatframe should only change each beat
 		nextBeatFrame += fpb + nextbeatskew;
 
 		// write new beat to UI (bar info currently not used)
